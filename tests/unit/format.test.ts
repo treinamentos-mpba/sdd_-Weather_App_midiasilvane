@@ -1,18 +1,33 @@
-import { describe, it, expect } from 'vitest';
-import { getDayLabel, getShortDate } from '../../src/lib/format';
+import { describe, expect, it } from 'vitest';
+import { formatDayLabel, getDayLabel, getShortDate } from '../../src/lib/format';
 
-describe('format', () => {
-  it('rotula o primeiro e o segundo dia', () => {
-    expect(getDayLabel('2026-06-16', 0)).toBe('Hoje');
-    expect(getDayLabel('2026-06-17', 1)).toBe('Amanhã');
+describe('getDayLabel', () => {
+  it('labels index zero as today', () => {
+    expect(getDayLabel(0, '2026-10-29')).toBe('Hoje');
   });
 
-  it('usa dia da semana para os demais', () => {
-    // 2026-06-18 é uma quinta-feira.
-    expect(getDayLabel('2026-06-18', 2)).toBe('Qui');
+  it('labels index one as tomorrow', () => {
+    expect(getDayLabel(1, '2026-10-30')).toBe('Amanhã');
   });
 
-  it('formata data curta', () => {
-    expect(getShortDate('2026-06-16')).toBe('16 Jun');
+  it('uses the weekday for later indexes', () => {
+    expect(getDayLabel(2, '2026-10-31')).toBe('sábado');
+    expect(getDayLabel(4, '2026-11-02')).toBe('segunda-feira');
+  });
+});
+
+describe('getShortDate', () => {
+  it('formats the date with a short Brazilian Portuguese month', () => {
+    expect(getShortDate('2026-10-29')).toBe('29 de out.');
+  });
+
+  it('returns a fallback for an invalid date', () => {
+    expect(getShortDate('invalid')).toBe('Data indisponível');
+  });
+});
+
+describe('formatDayLabel', () => {
+  it('keeps the existing weekday and short-date label', () => {
+    expect(formatDayLabel('2026-10-29')).toBe('Qui., 29 de out.');
   });
 });

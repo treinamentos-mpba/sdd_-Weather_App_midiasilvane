@@ -1,29 +1,38 @@
-import { describe, it, expect } from 'vitest';
-import {
-  toFahrenheit,
-  convertTemperature,
-  formatTemperature,
-  unitLabel,
-} from '../../src/lib/temperature';
+import { describe, expect, it } from 'vitest';
+import { convertTemperature, formatTemperature, unitLabel } from '../../src/lib/temperature';
 
-describe('temperature', () => {
-  it('converte Celsius para Fahrenheit corretamente', () => {
-    expect(toFahrenheit(0)).toBe(32);
-    expect(toFahrenheit(100)).toBe(212);
-    expect(toFahrenheit(-40)).toBe(-40);
+describe('convertTemperature', () => {
+  it.each([
+    [0, 'fahrenheit', 32],
+    [100, 'fahrenheit', 212],
+    [-40, 'fahrenheit', -40],
+    [21.5, 'celsius', 21.5],
+  ] as const)('converts %s °C to %s as %s', (temperatureC, unit, expected) => {
+    expect(convertTemperature(temperatureC, unit)).toBe(expected);
   });
 
-  it('convertTemperature respeita a unidade', () => {
-    expect(convertTemperature(20, 'celsius')).toBe(20);
-    expect(convertTemperature(0, 'fahrenheit')).toBe(32);
+  it('preserves null temperatures', () => {
+    expect(convertTemperature(null, 'celsius')).toBeNull();
+    expect(convertTemperature(null, 'fahrenheit')).toBeNull();
+  });
+});
+
+describe('formatTemperature', () => {
+  it('rounds to one decimal place and uses pt-BR formatting', () => {
+    expect(formatTemperature(20.26, 'celsius')).toBe('20,3°C');
   });
 
-  it('formata com símbolo de grau e arredondamento', () => {
-    expect(formatTemperature(20.4, 'celsius')).toBe('20°');
-    expect(formatTemperature(0, 'fahrenheit')).toBe('32°');
+  it('formats the converted value and Fahrenheit symbol', () => {
+    expect(formatTemperature(20.24, 'fahrenheit')).toBe('68,4°F');
   });
 
-  it('retorna o rótulo da unidade', () => {
+  it('returns an unavailable label for null temperatures', () => {
+    expect(formatTemperature(null, 'celsius')).toBe('Indisponível');
+  });
+});
+
+describe('unitLabel', () => {
+  it('returns the correct symbol for each unit', () => {
     expect(unitLabel('celsius')).toBe('°C');
     expect(unitLabel('fahrenheit')).toBe('°F');
   });

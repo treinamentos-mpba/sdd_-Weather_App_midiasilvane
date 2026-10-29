@@ -1,76 +1,93 @@
-import { test, expect, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
-const geocoding = {
+const geocodingResponse = {
   results: [
     {
-      id: 1,
-      name: 'Seattle',
-      country: 'Estados Unidos',
-      admin1: 'Washington',
-      latitude: 47.6,
-      longitude: -122.33,
+      id: 3448439,
+      name: 'São Paulo',
+      latitude: -23.55,
+      longitude: -46.63,
+      admin1: 'São Paulo',
+      country: 'Brasil',
+      country_code: 'BR',
+      timezone: 'America/Sao_Paulo',
     },
   ],
 };
 
-const forecast = {
+const forecastResponse = {
+  timezone: 'America/Sao_Paulo',
   current: {
-    time: '2026-06-16T12:00',
+    time: '2026-10-29T12:00',
     temperature_2m: 0,
-    relative_humidity_2m: 80,
-    wind_speed_10m: 10,
-    surface_pressure: 1015,
-    precipitation: 0,
-    weather_code: 3,
+    weather_code: 0,
   },
   daily: {
-    time: ['2026-06-16', '2026-06-17', '2026-06-18', '2026-06-19', '2026-06-20'],
-    weather_code: [3, 61, 80, 1, 0],
-    temperature_2m_max: [20, 19, 22, 24, 25],
-    temperature_2m_min: [12, 11, 13, 14, 15],
-    precipitation_probability_max: [20, 90, 70, 10, 0],
+    time: ['2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02'],
+    weather_code: [0, 1, 2, 3, 61],
+    temperature_2m_min: [-2, 1, 4, 6, 8],
+    temperature_2m_max: [10, 5, 9, 12, 14],
+    precipitation_probability_max: [0, 10, 20, 50, 80],
   },
 };
 
-async function mockApis(page: Page) {
-  await page.route('**/geocoding-api.open-meteo.com/**', (route) =>
-    route.fulfill({ json: geocoding }),
+test('busca uma cidade, mostra a previsão e converte a temperatura para Fahrenheit', async ({
+  page,
+}) => {
+  await page.route('**/v1/search?*', (route) =>
+    route.fulfill({ status: 200, json: geocodingResponse }),
   );
-  await page.route('**/api.open-meteo.com/**', (route) => route.fulfill({ json: forecast }));
-}
+  await page.route('**/v1/forecast?*', (route) =>
+    route.fulfill({ status: 200, json: forecastResponse }),
+  );
 
-test('fluxo completo: buscar → clima atual → previsão → trocar unidade', async ({ page }) => {
-  await mockApis(page);
   await page.goto('/');
+  await page.getByRole('searchbox', { name: 'Buscar cidade' }).fill('São Paulo');
+  await page.getByRole('button', { name: 'Buscar' }).click();
 
-  await page.getByLabel(/buscar cidade/i).fill('Seattle');
-  await page.getByRole('button', { name: /buscar/i }).click();
+  await expect(page.getByRole('heading', { name: 'São Paulo' }).first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Previsão de 5 dias' })).toBeVisible();
+  await expect(page.getByText('0°C')).toBeVisible();
 
-  await expect(page.getByRole('heading', { name: 'Seattle' })).toBeVisible();
-  await expect(page.getByRole('region', { name: /previsão de 5 dias/i })).toBeVisible();
-
-  // 0°C exibido; após trocar para °F deve virar 32°.
-  await expect(page.getByText('0°').first()).toBeVisible();
   await page.getByRole('button', { name: '°F' }).click();
-  await expect(page.getByText('32°').first()).toBeVisible();
+
+  await expect(page.getByText('32°F')).toBeVisible();
 });
 
-test('estado vazio quando a cidade não existe', async ({ page }) => {
-  await page.route('**/geocoding-api.open-meteo.com/**', (route) => route.fulfill({ json: {} }));
+test('mostra o estado vazio quando o geocoding não retorna results', async ({ page }) => {
+  let forecastRequests = 0;
+
+  await page.route('**/v1/search?*', (route) => route.fulfill({ status: 200, json: {} }));
+  await page.route('**/v1/forecast?*', (route) => {
+    forecastRequests += 1;
+    return route.fulfill({ status: 200, json: forecastResponse });
+  });
+
   await page.goto('/');
+  await page.getByRole('searchbox', { name: 'Buscar cidade' }).fill('Cidade sem resultado');
+  await page.getByRole('button', { name: 'Buscar' }).click();
 
-  await page.getByLabel(/buscar cidade/i).fill('xyzxyz');
-  await page.getByRole('button', { name: /buscar/i }).click();
-
-  await expect(page.getByText(/nenhuma cidade encontrada/i)).toBeVisible();
+  await expect(page.getByText('Nenhuma cidade encontrada')).toBeVisible();
+  expect(forecastRequests).toBe(0);
 });
 
-test('viewport mobile renderiza o fluxo principal', async ({ page }) => {
-  await mockApis(page);
+test('renderiza o clima no fluxo principal em viewport mobile 375x812', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/');
+  await page.route('**/v1/search?*', (route) =>
+    route.fulfill({ status: 200, json: geocodingResponse }),
+  );
+  await page.route('**/v1/forecast?*', (route) =>
+    route.fulfill({ status: 200, json: forecastResponse }),
+  );
 
-  await page.getByLabel(/buscar cidade/i).fill('Seattle');
-  await page.getByRole('button', { name: /buscar/i }).click();
-  await expect(page.getByRole('heading', { name: 'Seattle' })).toBeVisible();
+  await page.goto('/');
+  await page.getByRole('searchbox', { name: 'Buscar cidade' }).fill('São Paulo');
+  await page.getByRole('button', { name: 'Buscar' }).click();
+
+  await expect(page.getByRole('heading', { name: 'São Paulo' }).first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Previsão de 5 dias' })).toBeVisible();
+  await expect(page.getByText('0°C')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true);
 });
