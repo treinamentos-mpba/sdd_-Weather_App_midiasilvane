@@ -9,7 +9,7 @@ export interface CurrentWeatherProps {
 }
 
 function formatMetric(value: number | null | undefined, unit: string): string {
-  if (value === null || value === undefined) return 'Indisponível';
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'Indisponível';
 
   const formatted = new Intl.NumberFormat('pt-BR', {
     maximumFractionDigits: 1,

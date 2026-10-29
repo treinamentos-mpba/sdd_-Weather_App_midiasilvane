@@ -15,6 +15,14 @@ describe('convertTemperature', () => {
     expect(convertTemperature(null, 'celsius')).toBeNull();
     expect(convertTemperature(null, 'fahrenheit')).toBeNull();
   });
+
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('rejects non-finite temperature %s', (temperature) => {
+    expect(convertTemperature(temperature, 'fahrenheit')).toBeNull();
+  });
 });
 
 describe('formatTemperature', () => {
@@ -28,6 +36,11 @@ describe('formatTemperature', () => {
 
   it('returns an unavailable label for null temperatures', () => {
     expect(formatTemperature(null, 'celsius')).toBe('Indisponível');
+  });
+
+  it('never formats non-finite values as NaN or Infinity', () => {
+    expect(formatTemperature(Number.NaN, 'celsius')).toBe('Indisponível');
+    expect(formatTemperature(Number.POSITIVE_INFINITY, 'fahrenheit')).toBe('Indisponível');
   });
 });
 

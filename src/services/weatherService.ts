@@ -23,12 +23,16 @@ export class WeatherServiceError extends Error {
     super(
       message ??
         (kind === 'http'
-          ? `Open-Meteo returned HTTP ${statusCode ?? 'unknown'}`
+          ? statusCode === 429
+            ? 'O serviço de clima está recebendo muitas consultas. Aguarde antes de tentar novamente.'
+            : statusCode !== undefined && statusCode >= 500
+              ? 'O serviço de clima está temporariamente indisponível. Tente novamente.'
+              : 'Não foi possível consultar o serviço de clima. Tente novamente mais tarde.'
           : kind === 'timeout'
-            ? 'A requisição demorou demais.'
+            ? 'A consulta excedeu o tempo limite. Verifique sua conexão e tente novamente.'
             : kind === 'network'
-              ? 'Falha de rede.'
-              : 'Open-Meteo returned an incomplete or invalid forecast response'),
+              ? 'Não foi possível conectar ao serviço de clima. Verifique sua conexão e tente novamente.'
+              : 'O serviço retornou dados inválidos. Tente novamente mais tarde.'),
     );
     this.name = 'WeatherServiceError';
     this.kind = kind;
@@ -56,6 +60,7 @@ function toGeocodingResult(value: unknown): GeocodingResult | null {
   if (
     !isRecord(value) ||
     typeof value.name !== 'string' ||
+    value.name.trim().length === 0 ||
     typeof value.latitude !== 'number' ||
     !Number.isFinite(value.latitude) ||
     typeof value.longitude !== 'number' ||
@@ -94,7 +99,7 @@ async function fetchWithTimeout(
   init: RequestInit = {},
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  const timeoutId = setTimeout(() => controller.abort(), 8_000);
 
   try {
     return await fetch(input, { ...init, signal: controller.signal });
@@ -131,29 +136,36 @@ function parseForecastPayload(payload: unknown, city: City): WeatherData {
   }
 
   const { current, daily } = payload;
-  const dates = daily.time;
-  const timezone = typeof payload.timezone === 'string' ? payload.timezone : city.timezone;
-
-  if (
-    !Array.isArray(dates) ||
-    dates.length < 5 ||
-    dates.slice(0, 5).some((date) => typeof date !== 'string') ||
-    !timezone
-  ) {
-    throw new WeatherServiceError(undefined, undefined, 'invalid-response');
-  }
-
-  let isPartial = false;
+  const dates = Array.isArray(daily.time) ? daily.time : [];
+  const responseTimezone =
+    typeof payload.timezone === 'string' && payload.timezone.trim().length > 0
+      ? payload.timezone
+      : undefined;
+  const cityTimezone = city.timezone?.trim() || undefined;
+  const timezone = responseTimezone ?? cityTimezone ?? 'UTC';
+  let isPartial =
+    dates.length !== 5 ||
+    (responseTimezone === undefined && cityTimezone === undefined) ||
+    dates.slice(0, 5).some((date) => typeof date !== 'string' || date.trim().length === 0);
   const currentWeather: CurrentWeather = {
     temperatureC: readOptionalNumber(current.temperature_2m),
     weatherCode: readOptionalNumber(current.weather_code),
-    observedAt: typeof current.time === 'string' ? current.time : null,
+    observedAt:
+      typeof current.time === 'string' && current.time.trim().length > 0 ? current.time : null,
+    humidityPercent: readOptionalNumber(current.relative_humidity_2m),
+    windSpeedKmh: readOptionalNumber(current.wind_speed_10m),
+    precipitationMm: readOptionalNumber(current.precipitation),
+    pressureHpa: readOptionalNumber(current.surface_pressure),
   };
 
   if (
     currentWeather.temperatureC === null ||
     currentWeather.weatherCode === null ||
-    currentWeather.observedAt === null
+    currentWeather.observedAt === null ||
+    currentWeather.humidityPercent === null ||
+    currentWeather.windSpeedKmh === null ||
+    currentWeather.precipitationMm === null ||
+    currentWeather.pressureHpa === null
   ) {
     isPartial = true;
   }
@@ -166,23 +178,30 @@ function parseForecastPayload(payload: unknown, city: City): WeatherData {
     return result;
   }
 
-  const forecastDays: ForecastDay[] = dates.slice(0, 5).map((date, index) => {
+  const forecastDays: ForecastDay[] = dates.slice(0, 5).flatMap((date, index) => {
+    if (typeof date !== 'string' || date.trim().length === 0) {
+      isPartial = true;
+      return [];
+    }
+
     const weatherCode = readDailyNumber(daily.weather_code, index);
     const minTemperatureC = readDailyNumber(daily.temperature_2m_min, index);
     const maxTemperatureC = readDailyNumber(daily.temperature_2m_max, index);
     const precipitationValue = Array.isArray(daily.precipitation_probability_max)
       ? daily.precipitation_probability_max[index]
       : undefined;
-    const precipitationProbabilityPercent =
-      precipitationValue === null ? 0 : readOptionalNumber(precipitationValue);
+    const precipitationProbabilityPercent = readOptionalNumber(precipitationValue);
+    if (precipitationProbabilityPercent === null) isPartial = true;
 
-    return {
-      date: date as string,
-      weatherCode,
-      minTemperatureC,
-      maxTemperatureC,
-      ...(precipitationProbabilityPercent !== null ? { precipitationProbabilityPercent } : {}),
-    };
+    return [
+      {
+        date,
+        weatherCode,
+        minTemperatureC,
+        maxTemperatureC,
+        precipitationProbabilityPercent,
+      },
+    ];
   });
 
   return {
@@ -224,9 +243,11 @@ export async function getWeather(city: City): Promise<WeatherData> {
   url.search = new URLSearchParams({
     latitude: String(city.latitude),
     longitude: String(city.longitude),
-    current: 'temperature_2m,weather_code',
+    current:
+      'temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m,precipitation,surface_pressure',
     daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
     temperature_unit: 'celsius',
+    wind_speed_unit: 'kmh',
     timezone: 'auto',
     forecast_days: '5',
   }).toString();

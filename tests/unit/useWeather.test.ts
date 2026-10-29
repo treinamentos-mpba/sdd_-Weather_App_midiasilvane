@@ -11,7 +11,13 @@ vi.mock('../../src/services/weatherService', () => {
     readonly retryAfter?: string;
 
     constructor(statusCode?: number, retryAfter?: string, kind = 'http') {
-      super('Mock service error');
+      super(
+        kind === 'network'
+          ? 'Não foi possível conectar ao serviço de clima. Verifique sua conexão e tente novamente.'
+          : kind === 'timeout'
+            ? 'A consulta excedeu o tempo limite. Verifique sua conexão e tente novamente.'
+            : 'Mock service error',
+      );
       this.name = 'WeatherServiceError';
       this.statusCode = statusCode;
       this.retryAfter = retryAfter;
@@ -59,33 +65,75 @@ afterEach(() => {
 });
 
 describe('useWeather API error handling', () => {
-  it('does not retry HTTP 429 before Retry-After and retries after the deadline', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
-    vi.mocked(searchCities)
-      .mockRejectedValueOnce(new WeatherServiceError(429, '2'))
-      .mockResolvedValueOnce([cityA]);
-    vi.mocked(getWeather).mockResolvedValue(createWeatherData(cityA));
+  it('shows a friendly offline error and retries the failed weather request', async () => {
+    vi.mocked(searchCities).mockResolvedValue([cityA]);
+    vi.mocked(getWeather)
+      .mockRejectedValueOnce(new WeatherServiceError(undefined, undefined, 'network'))
+      .mockResolvedValueOnce(createWeatherData(cityA));
 
     const { result } = renderHook(() => useWeather());
 
     await act(async () => {
       await result.current.search('Cidade A');
     });
+
+    expect(result.current.status).toBe('success');
+    expect(result.current.data).toBeNull();
+    expect(getWeather).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.selectCity(cityA);
+    });
+
     expect(result.current.status).toBe('error');
+    expect(result.current.error?.message).toContain('Verifique sua conexão');
     expect(searchCities).toHaveBeenCalledTimes(1);
+    expect(getWeather).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await result.current.retry();
     });
+
     expect(searchCities).toHaveBeenCalledTimes(1);
+    expect(getWeather).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe('success');
+    expect(result.current.data?.city.name).toBe('Cidade A');
+  });
+
+  it('does not retry HTTP 429 before Retry-After and retries after the deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
+    vi.mocked(searchCities).mockResolvedValue([cityA]);
+    vi.mocked(getWeather)
+      .mockRejectedValueOnce(new WeatherServiceError(429, '2'))
+      .mockResolvedValueOnce(createWeatherData(cityA));
+
+    const { result } = renderHook(() => useWeather());
+
+    await act(async () => {
+      await result.current.search('Cidade A');
+    });
+    expect(result.current.status).toBe('success');
+    expect(getWeather).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.selectCity(cityA);
+    });
+    expect(result.current.status).toBe('error');
+    expect(getWeather).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(getWeather).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
       await result.current.retry();
     });
 
-    expect(searchCities).toHaveBeenCalledTimes(2);
+    expect(searchCities).toHaveBeenCalledTimes(1);
+    expect(getWeather).toHaveBeenCalledTimes(2);
     expect(result.current.status).toBe('success');
     expect(result.current.data?.city.name).toBe('Cidade A');
   });
@@ -106,13 +154,23 @@ describe('useWeather API error handling', () => {
     const { result } = renderHook(() => useWeather());
     let requestA: Promise<void> = Promise.resolve();
 
+    await act(async () => {
+      await result.current.search('A');
+    });
+
+    expect(getWeather).not.toHaveBeenCalled();
     act(() => {
-      requestA = result.current.search('A');
+      requestA = result.current.selectCity(cityA);
     });
     await waitFor(() => expect(getWeather).toHaveBeenCalledWith(cityA));
 
     await act(async () => {
       await result.current.search('B');
+    });
+    expect(getWeather).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.selectCity(cityB);
     });
     expect(result.current.data?.city.name).toBe('Cidade B');
 

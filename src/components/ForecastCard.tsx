@@ -9,7 +9,9 @@ export interface ForecastCardProps {
 }
 
 function formatRainProbability(probability: number | null | undefined): string {
-  if (probability === null || probability === undefined) return 'Indisponível';
+  if (typeof probability !== 'number' || !Number.isFinite(probability)) {
+    return 'Indisponível';
+  }
 
   return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(probability)}%`;
 }

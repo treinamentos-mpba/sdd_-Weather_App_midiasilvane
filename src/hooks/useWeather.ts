@@ -10,6 +10,7 @@ export interface UseWeatherResult {
   status: WeatherStatus;
   data: WeatherData | null;
   cities: City[];
+  selectedCity: City | null;
   error: WeatherServiceError | null;
   query: string;
   search: (name: string) => Promise<void>;
@@ -34,6 +35,7 @@ export function useWeather(): UseWeatherResult {
   const [status, setStatus] = useState<WeatherStatus>('idle');
   const [data, setData] = useState<WeatherData | null>(null);
   const [cities, setCities] = useState<City[]>([]);
+  const [selectedCity, setSelectedCity] = useState<City | null>(null);
   const [error, setError] = useState<WeatherServiceError | null>(null);
   const [query, setQuery] = useState('');
 
@@ -81,6 +83,7 @@ export function useWeather(): UseWeatherResult {
     setQuery(normalizedName);
     setError(null);
     setData(null);
+    setSelectedCity(null);
     retryAfterRef.current = 0;
 
     if (!normalizedName) {
@@ -104,9 +107,7 @@ export function useWeather(): UseWeatherResult {
         return;
       }
 
-      const firstCity = results[0];
-      lastOperationRef.current = { kind: 'weather', city: firstCity };
-      await loadWeather(firstCity, requestId);
+      setStatus('success');
     } catch (caughtError) {
       applyError(caughtError, requestId);
     }
@@ -116,6 +117,7 @@ export function useWeather(): UseWeatherResult {
     const requestId = ++requestIdRef.current;
     lastOperationRef.current = { kind: 'weather', city };
     retryAfterRef.current = 0;
+    setSelectedCity(city);
     setData(null);
     setError(null);
     setStatus('loading');
@@ -140,6 +142,7 @@ export function useWeather(): UseWeatherResult {
     status,
     data,
     cities,
+    selectedCity,
     error,
     query,
     search,

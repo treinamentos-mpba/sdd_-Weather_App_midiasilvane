@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import CityResults from './components/CityResults';
 import CurrentWeather from './components/CurrentWeather';
 import ForecastList from './components/ForecastList';
 import SearchBar from './components/SearchBar';
@@ -9,16 +10,11 @@ import UnitToggle from './components/UnitToggle';
 import { useWeather } from './hooks/useWeather';
 import type { Unit, WeatherData } from './types/weather';
 
-function getErrorMessage(kind?: string): string {
-  if (kind === 'timeout') return 'A consulta demorou demais. Tente novamente.';
-  if (kind === 'network') return 'Não foi possível conectar ao serviço de clima.';
-  return 'O serviço não conseguiu carregar os dados do clima.';
-}
-
 export default function App() {
   const [unit, setUnit] = useState<Unit>('celsius');
   const [searchText, setSearchText] = useState('');
-  const { status, data, error, query, search, retry } = useWeather();
+  const { status, data, cities, selectedCity, error, query, search, selectCity, retry } =
+    useWeather();
 
   function renderWeather(data: WeatherData) {
     return (
@@ -84,7 +80,37 @@ export default function App() {
 
         {status === 'loading' && (
           <div className="mx-auto mt-10 max-w-2xl">
-            <LoadingState message={`Buscando o clima de ${query}...`} />
+            <LoadingState
+              message={
+                selectedCity
+                  ? `Buscando o clima de ${selectedCity.name}...`
+                  : `Buscando cidades para ${query}...`
+              }
+            />
+          </div>
+        )}
+
+        {status === 'success' && !data && cities.length > 0 && (
+          <div className="mx-auto mt-8 max-w-2xl">
+            <CityResults
+              cities={cities}
+              selectedCity={selectedCity}
+              onSelect={(city) => {
+                void selectCity(city);
+              }}
+            />
+          </div>
+        )}
+
+        {status === 'loading' && cities.length > 0 && (
+          <div className="mx-auto mt-8 max-w-2xl">
+            <CityResults
+              cities={cities}
+              selectedCity={selectedCity}
+              onSelect={(city) => {
+                void selectCity(city);
+              }}
+            />
           </div>
         )}
 
@@ -100,7 +126,7 @@ export default function App() {
         {status === 'error' && (
           <div className="mx-auto mt-10 max-w-2xl">
             <ErrorState
-              message={getErrorMessage(error?.kind)}
+              message={error?.message ?? 'Não foi possível carregar os dados do clima.'}
               onRetry={() => {
                 void retry();
               }}
